@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 
 function parser(src: string) {
     // 解析
+    
     const lines = src.split('\n');
     let todoList = "";
     let finishRegex = /^X/;
@@ -40,12 +41,39 @@ export default function todoParser(): Plugin {
             return html.replace(/<title>(.*?)<\/title>/, '<title>TODO Parser</title>');
         },
 
-        async transform(src, id) {
+        transform(src, id) {
+            // module inject
             console.log(id);
             if (todoFileRegex.test(id)) {  
-                let content = await fs.readFile(id);
-                return `export const data = "${parser(content.toString())}"`;
+                return {
+                    code: `
+                    export let data = "${parser(src)}"
+                    export ${parser}
+                    if (import.meta.hot) {
+                        import.meta.hot.on('special-update', (data) => {
+                            data = parser(data.updateVal);
+                            document.body.innerHTML = data;
+                        })
+                    }
+                    `,
+                    
+                };
             }
+        },
+
+        async handleHotUpdate({ server, file, modules }) {
+            let fileData = await fs.readFile(modules[0].id as string);
+            server.ws.send({
+                type: 'custom',
+                event: 'special-update',
+                data: {
+                    msg: "Update from server",
+                    updateVal: fileData.toString()
+                }
+            })
+            console.log(`${file} should be updated`);
+            
+            return [];
         }
     }
 }
